@@ -55,4 +55,4 @@ Hệ thống kết hợp các dịch vụ Serverless cốt lõi:
 │   ├── lambda_register.py         # Hàm Lambda đăng ký khuôn mặt (IndexFaces)
 │   └── lambda_attendance.py       # Hàm Lambda điểm danh (Tích hợp Fallback Mechanism)
 └── docs/
-    └── architecture_diagram.png   # Sơ đồ kiến trúc hệ thống chi tiết
+    └── architecture_diagram.jpg   # Sơ đồ kiến trúc hệ thống chi tiết
