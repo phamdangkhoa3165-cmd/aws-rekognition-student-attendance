@@ -6,7 +6,7 @@ Trường Đại học Sư phạm Kỹ thuật TP. Hồ Chí Minh (HCMUTE)
 
 ### Nhóm sinh viên thực hiện:
 - **Phạm Đăng Khoa** - MSSV: 24110256
-- **Nguyễn Tín**
+- **Huỳnh Quảng Tín** - MSSV: 24110353
 
 ---
 
