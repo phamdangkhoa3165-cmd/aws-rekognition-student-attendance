@@ -1,8 +1,8 @@
 # AWS Rekognition Student Face Attendance System (Serverless Architecture)
 
 Đồ án môn học: **Điện toán đám mây (Cloud Computing)** – Học kỳ 1, Năm học 2026–2027  
-Đơn vị: **Trường Đại học Sư phạm Kỹ thuật TP. Hồ Chí Minh (HCMUTE)**  
-**Giảng viên hướng dẫn:** ThS. Huỳnh Xuân Phụng  
+Đơn vị: **Trường Đại học Công nghệ Kỹ thuật TP. Hồ Chí Minh (HCM-UTE)**  
+**Giảng viên hướng dẫn:** ThS. Huỳnh Xuân Phụng 
 
 ### Nhóm sinh viên thực hiện:
 - **Phạm Đăng Khoa** – MSSV: **24110256**
