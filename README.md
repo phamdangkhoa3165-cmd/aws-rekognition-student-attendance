@@ -1,58 +1,114 @@
 # AWS Rekognition Student Face Attendance System (Serverless Architecture)
 
-Đồ án môn học: **Điện toán đám mây (Cloud Computing)** - Học kỳ 1, Năm học 2026-2027  
-Trường Đại học Công nghệ Kỹ thuật TP. Hồ Chí Minh (HCMUTE)  
+Đồ án môn học: **Điện toán đám mây (Cloud Computing)** – Học kỳ 1, Năm học 2026–2027  
+Đơn vị: **Trường Đại học Sư phạm Kỹ thuật TP. Hồ Chí Minh (HCMUTE)**  
 **Giảng viên hướng dẫn:** ThS. Huỳnh Xuân Phụng  
 
 ### Nhóm sinh viên thực hiện:
-- **Phạm Đăng Khoa** - MSSV: 24110256
-- **Huỳnh Quảng Tín** - MSSV: 24110353
+- **Phạm Đăng Khoa** – MSSV: **24110256**
+- **Huỳnh Quảng Tín** – MSSV: **24110353**
 
 ---
 
-## 1. Tổng quan đề tài
-Xây dựng hệ thống điểm danh sinh viên tự động ứng dụng AI/ML theo mô hình Serverless trên AWS (Region `us-east-1`). Hệ thống tự động so khớp khuôn mặt từ ảnh chụp tập thể lớp học với kho vector đặc trưng sinh viên đã đăng ký nhằm tối ưu hóa thời gian và độ chính xác trong điểm danh.
+## 1. Giới thiệu tổng quan
+Hệ thống điểm danh sinh viên tự động ứng dụng trí tuệ nhân tạo (AI/ML) theo kiến trúc **Serverless** triển khai trên nền tảng **AWS Learner Lab** (Region `us-east-1`). Hệ thống giải quyết bài toán điểm danh lớp học bằng cách tự động trích xuất đặc trưng khuôn mặt sinh viên khi đăng ký và đối soát trực tiếp từ ảnh chụp tập thể lớp học, kết hợp cơ chế dự phòng (**Fallback Mechanism**) đa tầng đảm bảo tính liên tục và chính xác.
 
 ---
 
-## 2. Kiến trúc hệ thống
-Hệ thống kết hợp các dịch vụ Serverless cốt lõi:
-- **Amazon S3:** Lưu trữ ảnh đăng ký ban đầu (`/registered-faces/`), ảnh lớp học (`/class-photos/`) và ảnh cách ly khi lỗi (`/failed-uploads/`).
-- **Amazon Rekognition:** Quản lý Vector Collection (`student-face-collection`) và thực thi nhận diện khuôn mặt (`IndexFaces`, `SearchFacesByImage`).
-- **AWS Lambda:** Xử lý logic nghiệp vụ phi máy chủ, gán quyền thực thi qua `LabRole`.
-- **Amazon DynamoDB:** Quản trị cơ sở dữ liệu NoSQL ở chế độ On-demand gồm 3 bảng (`Students`, `AttendanceRecords`, `AttendanceManualReview`).
-- **Amazon CloudWatch:** Ghi log hệ thống và cảnh báo lỗi.
+## 2. Kiến trúc hệ thống (System Architecture)
+
+![Sơ đồ kiến trúc hệ thống](docs/architecture_diagram.jpg)
+
+### Các dịch vụ AWS cốt lõi:
+1. **Hạ tầng mạng & Bảo mật (VPC & IAM):**
+   - **VPC (`student-attendance-vpc` - `10.0.0.0/16`):** Gồm 2 Public Subnets và Internet Gateway.
+   - **AWS IAM (`LabRole`):** Toàn bộ hàm Lambda và dịch vụ thực thi dưới quyền `LabRole` có sẵn của AWS Learner Lab (tuân thủ nguyên tắc không tạo IAM User/Role mới).
+2. **Lưu trữ & Kích hoạt sự kiện (Amazon S3):**
+   - Bucket: `student-attendance-rekognition-24110256` (Chế độ **Block All Public Access**).
+   - `/registered-faces/`: Lưu ảnh chân dung sinh viên đăng ký $\rightarrow$ kích hoạt S3 Event Notification gọi `RegisterFaceFunction`.
+   - `/class-photos/`: Lưu ảnh chụp lớp học $\rightarrow$ kích hoạt S3 Event Notification gọi `AttendanceCheckFunction`.
+   - `/failed-uploads/`: Thư mục cách ly tự động các tệp ảnh bị lỗi định dạng hoặc lỗi hệ thống (Fallback 2).
+3. **Xử lý phi máy chủ (AWS Lambda - Runtime Python 3.12):**
+   - **Lambda 1 (`RegisterFaceFunction`):** Đọc ảnh từ `/registered-faces/`, gọi API `IndexFaces` nạp vector vào Rekognition Collection và lưu thông tin sinh viên vào bảng `Students`.
+   - **Lambda 2 (`AttendanceCheckFunction`):** Đọc ảnh từ `/class-photos/`, gọi API `SearchFacesByImage` (ngưỡng `85%`), ghi nhận có mặt vào bảng `AttendanceRecords` hoặc kích hoạt **Fallback Mechanism** nếu không khớp/lỗi.
+   - **Lambda 3 (`GetAttendanceAPI`):** Truy vấn danh sách điểm danh theo ngày và hỗ trợ giảng viên xác nhận thủ công (Manual Override) các bản ghi từ bảng dự phòng `AttendanceManualReview`.
+4. **Trí tuệ nhân tạo (Amazon Rekognition):**
+   - Collection ID: `student-face-collection` (Chỉ lưu trữ vector đặc trưng khuôn mặt, không lưu ảnh gốc).
+5. **Cơ sở dữ liệu NoSQL (Amazon DynamoDB - Chế độ On-Demand):**
+   - Bảng `Students`: Partition Key `StudentId` (String) – Lưu thông tin sinh viên và `FaceId`.
+   - Bảng `AttendanceRecords`: Partition Key `ClassDate` (String), Sort Key `StudentId` (String) – Lưu kết quả điểm danh chính thức.
+   - Bảng `AttendanceManualReview`: Partition Key `ReviewId` (String) – Lưu danh sách chờ rà soát của cơ chế Fallback.
 
 ---
 
-## 3. Chính sách Quyền riêng tư (Privacy & Data Compliance)
-- **Tôn trọng quyền riêng tư:** Dự án chỉ sử dụng hình ảnh của thành viên trong nhóm và các cá nhân đã trực tiếp đồng ý cho phép sử dụng phục vụ nghiên cứu học tập.
-- **Quy mô an toàn:** Số lượng khuôn mặt lưu trữ dưới 50 khuôn mặt (tuân thủ giới hạn tối đa 1.000 khuôn mặt theo yêu cầu đồ án).
-- **Bảo mật dữ liệu:** S3 Bucket được kích hoạt tính năng **Block All Public Access** 100%, không mở public ra Internet; chỉ các hàm Lambda nội bộ được ủy quyền qua `LabRole` mới có quyền truy cập dữ liệu.
+## 3. Chính sách Quyền riêng tư (Privacy & Compliance)
+- **Tôn trọng quyền riêng tư:** Dự án chỉ sử dụng hình ảnh của các thành viên trong nhóm và những cá nhân đã trực tiếp đồng ý cung cấp hình ảnh phục vụ học tập, nghiên cứu.
+- **Giới hạn dữ liệu:** Quy mô kiểm thử dưới 50 khuôn mặt (tuân thủ chặt chẽ giới hạn $\le 1.000$ khuôn mặt của đề tài).
+- **Bảo mật lưu trữ:** S3 Bucket chặn 100% truy cập công khai (`BlockPublicAcls=true`, `RestrictPublicBuckets=true`); chỉ các hàm Lambda nội bộ mới có quyền đọc/ghi thông qua `LabRole`.
+- **Quản trị tài nguyên (Tagging):** Toàn bộ tài nguyên trên AWS được gắn thẻ chuẩn hóa `Project: FaceAttendance` và `Owner: Khoa-Tin`.
 
 ---
 
-## 4. Cơ chế Dự phòng (Fallback Mechanism)
-Để khắc phục bài toán nhận diện thực tế và tránh làm gián đoạn buổi điểm danh, hệ thống thiết kế cơ chế Fallback 2 tầng:
+## 4. Cơ chế Dự phòng (2-Tier Fallback Mechanism)
+Để đảm bảo quy trình điểm danh không bị gián đoạn trong môi trường lớp học thực tế, hệ thống triển khai cơ chế Fallback 2 cấp độ tại [`src/lambda_attendance.py`](src/lambda_attendance.py) và [`src/lambda_get_attendance.py`](src/lambda_get_attendance.py):
 
-### a. Cơ chế Fallback nhận diện (Recognition Fallback)
-- **Nguyên nhân kích hoạt:** Sinh viên bị khuất mặt, thiếu sáng, góc nghiêng hoặc độ tin cậy so khớp dưới ngưỡng 85% (`Confidence < 85%`).
-- **Hành động xử lý:** Hệ thống không dừng phiên hay báo lỗi đỏ, mà tự động ghi nhận bản ghi vào bảng DynamoDB `AttendanceManualReview` với trạng thái `PENDING_MANUAL_REVIEW`.
-- **Giải pháp xử lý:** Giảng viên đối chiếu ảnh gốc để xác nhận bằng tay trên hệ thống hoặc sinh viên được phép điểm danh bổ sung bằng hình thức xác nhận MSSV.
+### Cấp độ 1: Recognition Fallback (Xử lý khi AI không nhận diện được hoặc độ tin cậy thấp)
+- **Điều kiện kích hoạt:** Khuôn mặt trong ảnh lớp học bị che khuất, góc nghiêng, thiếu sáng, chưa đăng ký hoặc độ tương đồng `Similarity < 85%`.
+- **Xử lý tự động:** Hàm `AttendanceCheckFunction` không hủy phiên mà tự động tạo bản ghi vào bảng DynamoDB `AttendanceManualReview` với trạng thái `PENDING_MANUAL_REVIEW` kèm đường dẫn ảnh gốc.
+- **Khắc phục (Manual Override):** Giảng viên sử dụng chức năng `MANUAL_APPROVE` trên `GetAttendanceAPI` để duyệt tay sinh viên vào bảng điểm danh chính thức (`VerificationType = MANUAL_FALLBACK_APPROVED`) hoặc cho phép sinh viên xác nhận bổ sung bằng MSSV.
 
-### b. Cơ chế Fallback sự cố hạ tầng (System Fault-Tolerance Fallback)
-- **Nguyên nhân kích hoạt:** Tải lên tệp ảnh hỏng, định dạng không được hỗ trợ hoặc dịch vụ Rekognition bị giới hạn băng thông (Throttling/Rate Limit).
-- **Hành động xử lý:** Khối ngoại lệ `try...except ClientError` trong Lambda tự động di chuyển tệp ảnh lỗi sang thư mục cách ly `/failed-uploads/` trên S3 để giải phóng luồng xử lý cho các ảnh khác, đồng thời ghi lại mã lỗi chi tiết vào DynamoDB và CloudWatch Logs.
+### Cấp độ 2: System Fault-Tolerance Fallback (Xử lý lỗi tệp hỏng hoặc sự cố hạ tầng)
+- **Điều kiện kích hoạt:** Tệp tải lên bị hỏng định dạng (`InvalidImageFormatException`), ảnh không chứa khuôn mặt hợp lệ hoặc dịch vụ bị giới hạn băng thông (`ProvisionedThroughputExceededException` / Throttling).
+- **Xử lý tự động:** Khối `try...except ClientError` bắt ngoại lệ, tự động sao chép tệp lỗi sang thư mục cách ly `/failed-uploads/` trên S3 và xóa tệp ở thư mục chính để tránh nghẽn hàng đợi sự kiện, đồng thời ghi mã lỗi chi tiết vào bảng `AttendanceManualReview` (`Status = SYSTEM_ERROR_ISOLATED`) và Amazon CloudWatch Logs.
 
 ---
 
-## 5. Cấu trúc thư mục mã nguồn
+## 5. Tiến độ thực hiện & Kết quả Kiểm thử (Tuần 1 & Tuần 2)
+
+### Tiến độ theo tuần:
+- [x] **Tuần 1:** Tìm hiểu dịch vụ, thiết kế sơ đồ kiến trúc, dựng nền tảng VPC, kiểm tra IAM `LabRole`, tạo S3 Bucket (3 folders), 3 bảng DynamoDB, khởi tạo Rekognition Collection qua CLI và thiết kế Fallback Mechanism.
+- [x] **Tuần 2:** Triển khai 3 hàm AWS Lambda (`RegisterFaceFunction`, `AttendanceCheckFunction`, `GetAttendanceAPI`), cấu hình S3 Event Notifications và hoàn thành 5 kịch bản kiểm thử từng thành phần (Component Testing).
+- [ ] **Tuần 3:** Tích hợp Amazon API Gateway, xây dựng Web Client xem kết quả điểm danh, cấu hình giám sát CloudWatch Alarms & bảo mật.
+- [ ] **Tuần 4:** Kiểm thử tổng thể (End-to-End), tối ưu chi phí, dọn dẹp tài nguyên, hoàn thiện báo cáo và video demo.
+
+### Bảng kết quả kiểm thử từng thành phần (Tuần 2):
+
+| Mã Test | Thành phần kiểm thử | Đầu vào kiểm thử (Input) | Kết quả thực tế trên AWS (Actual Output) | Trạng thái |
+| :---: | :--- | :--- | :--- | :---: |
+| **TC-01** | **Lambda 1 + Rekognition `IndexFaces` + DynamoDB `Students`** | Upload ảnh `24110256_PhamDangKhoa.jpg` và `24110353_HuynhQuangTin.jpg` vào `registered-faces/` | S3 tự động kích hoạt Lambda 1; Rekognition sinh `FaceId`; bảng `Students` lưu chính xác MSSV, Họ tên và `FaceId`. | **PASS** |
+| **TC-02** | **Lambda 2 + Rekognition `SearchFacesByImage` (Luồng chính)** | Upload ảnh lớp hợp lệ `att_success_khoa.jpg` vào `class-photos/` | Rekognition khớp khuôn mặt với `Confidence > 99%`; bảng `AttendanceRecords` ghi nhận `Status = PRESENT`, `VerificationType = AI_AUTOMATIC`. | **PASS** |
+| **TC-03** | **Fallback 1 (Recognition Fallback)** | Upload ảnh người chưa đăng ký `att_unregistered_person.jpg` vào `class-photos/` | Không khớp ngưỡng 85%; Lambda 2 kích hoạt Fallback 1 ghi vào bảng `AttendanceManualReview` với trạng thái `PENDING_MANUAL_REVIEW`. | **PASS** |
+| **TC-04** | **Fallback 2 (System Fault-Tolerance Fallback)** | Upload file hỏng định dạng `corrupted_image.jpg` vào `class-photos/` | Khối `except ClientError` bắt lỗi, tự động chuyển file sang `failed-uploads/` và ghi log `SYSTEM_ERROR_ISOLATED`. | **PASS** |
+| **TC-05** | **Lambda 3 (`GetAttendanceAPI`)** | Gọi Test Event `GET_ATTENDANCE` và `MANUAL_APPROVE` từ [`tests/test_events.json`](tests/test_events.json) | Trả về HTTP 200 kèm JSON danh sách có mặt và cập nhật duyệt tay thành công bản ghi Fallback. | **PASS** |
+
+---
+
+## 6. Cấu trúc thư mục & Liên kết nhanh (Direct Links)
+
 ```text
-├── README.md                      # Tài liệu tổng quan, Privacy Policy & Fallback Mechanism
+aws-rekognition-student-attendance/
+├── README.md                          # Tài liệu tổng quan, kiến trúc, Fallback & kết quả kiểm thử
+├── docs/
+│   └── architecture_diagram.jpg       # Sơ đồ kiến trúc hệ thống Serverless
 ├── scripts/
-│   └── setup_infrastructure.sh    # Script AWS CLI khởi tạo toàn bộ hạ tầng nền tảng
+│   └── setup_infrastructure.sh        # Script AWS CLI khởi tạo S3, DynamoDB, Rekognition Collection
 ├── src/
-│   ├── lambda_register.py         # Hàm Lambda đăng ký khuôn mặt (IndexFaces)
-│   └── lambda_attendance.py       # Hàm Lambda điểm danh (Tích hợp Fallback Mechanism)
-└── docs/
-    └── architecture_diagram.jpg   # Sơ đồ kiến trúc hệ thống chi tiết
+│   ├── lambda_register.py             # Lambda 1: Đăng ký khuôn mặt sinh viên (IndexFaces)
+│   ├── lambda_attendance.py           # Lambda 2: Điểm danh & xử lý Fallback 2 tầng (SearchFacesByImage)
+│   └── lambda_get_attendance.py       # Lambda 3: API tra cứu điểm danh & duyệt tay Fallback
+├── tests/
+│   └── test_events.json               # Bộ JSON payload kiểm thử các hàm Lambda
+└── evidence/
+    ├── 01_vpc_overview.jpg            # Minh chứng Tuần 1: Hạ tầng mạng VPC
+    ├── 02_iam_labrole.jpg             # Minh chứng Tuần 1: Quyền hạn IAM LabRole
+    ├── 03_s3_bucket.jpg               # Minh chứng Tuần 1: S3 Bucket & 3 thư mục
+    ├── 04_dynamodb_tables.jpg         # Minh chứng Tuần 1: 3 bảng DynamoDB Active
+    ├── 05_rekognition_cli.jpg         # Minh chứng Tuần 1: Khởi tạo Rekognition Collection
+    └── week2/                         # Thư mục minh chứng triển khai & kiểm thử Tuần 2
+```
+
+- **Mã nguồn Lambda:** [`src/lambda_register.py`](src/lambda_register.py) | [`src/lambda_attendance.py`](src/lambda_attendance.py) | [`src/lambda_get_attendance.py`](src/lambda_get_attendance.py)
+- **Kịch bản kiểm thử JSON:** [`tests/test_events.json`](tests/test_events.json)
+- **Script khởi tạo hạ tầng:** [`scripts/setup_infrastructure.sh`](scripts/setup_infrastructure.sh)
+- **Minh chứng Tuần 1:** [`evidence/`](evidence/)
+- **Minh chứng Tuần 2:** [`evidence/week2/`](evidence/week2/)
