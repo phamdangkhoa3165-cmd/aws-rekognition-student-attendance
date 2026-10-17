@@ -1,0 +1,12 @@
+{
+  "test_get_attendance": {
+    "action": "GET_ATTENDANCE",
+    "class_date": "2026-10-17"
+  },
+  "test_manual_approve_fallback": {
+    "action": "MANUAL_APPROVE",
+    "class_date": "2026-10-17",
+    "student_id": "24110353",
+    "review_id": "sample-review-uuid"
+  }
+}
