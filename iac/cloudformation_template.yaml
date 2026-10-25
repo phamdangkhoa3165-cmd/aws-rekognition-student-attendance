@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Infrastructure as Code (IaC) cho He thong Diem danh Khuon mat Sinh vien voi Amazon Rekognition.
+  Don vi: Truong Dai hoc Cong nghe Ky thuat TP.HCM (HCM-UTE) - GVHD: ThS. Huynh Xuan Phung.
+  Sinh vien: Pham Dang Khoa (24110256) & Huynh Quang Tin (24110353).
+
+Parameters:
+  StudentBucketName:
+    Type: String
+    Default: student-attendance-rekognition-24110256
+  LabRoleArn:
+    Type: String
+    Description: ARN cua IAM LabRole co san tren AWS Learner Lab
+
+Resources:
+  # 1. Amazon S3 Bucket (Block All Public Access)
+  AttendanceS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref StudentBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: ['GET', 'PUT', 'POST', 'HEAD']
+            AllowedOrigins: ['*']
+            MaxAge: 3000
+      Tags:
+        - Key: Project
+          Value: FaceAttendance
+        - Key: Owner
+          Value: Khoa-Tin
+
+  # 2. DynamoDB Tables (On-Demand)
+  StudentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Students
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: StudentId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: StudentId
+          KeyType: HASH
+      Tags:
+        - Key: Project
+          Value: FaceAttendance
+        - Key: Owner
+          Value: Khoa-Tin
+
+  AttendanceRecordsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: AttendanceRecords
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: ClassDate
+          AttributeType: S
+        - AttributeName: StudentId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ClassDate
+          KeyType: HASH
+        - AttributeName: StudentId
+          KeyType: RANGE
+      Tags:
+        - Key: Project
+          Value: FaceAttendance
+        - Key: Owner
+          Value: Khoa-Tin
+
+  AttendanceManualReviewTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: AttendanceManualReview
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: ReviewId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ReviewId
+          KeyType: HASH
+      Tags:
+        - Key: Project
+          Value: FaceAttendance
+        - Key: Owner
+          Value: Khoa-Tin
+
+  # 3. CloudWatch Alarm giam sat loi Lambda
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: FaceAttendance-Lambda-Errors-Alarm
+      AlarmDescription: Canh bao khi ham Lambda xu ly diem danh phat sinh loi (>= 1 error trong 5 phut)
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: AttendanceCheckFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
