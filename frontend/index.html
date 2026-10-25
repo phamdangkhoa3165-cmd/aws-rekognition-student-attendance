@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ thống Điểm danh Khuôn mặt AWS Rekognition - HCM-UTE</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; color: #2c3e50; }
+        .container { max-width: 1150px; margin: 0 auto; }
+        .header { background: #1e3a8a; color: white; padding: 20px 25px; border-radius: 8px; margin-bottom: 20px; }
+        .header h1 { margin: 0 0 8px 0; font-size: 22px; }
+        .header p { margin: 4px 0; font-size: 14px; opacity: 0.9; }
+        .privacy-banner { background: #eff6ff; border-left: 5px solid #2563eb; padding: 15px; border-radius: 6px; margin-bottom: 20px; font-size: 14px; }
+        .grid { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); margin-bottom: 20px; }
+        .card h3 { margin-top: 0; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px; color: #1e3a8a; }
+        label { display: block; font-weight: 600; margin: 10px 0 5px; font-size: 14px; }
+        input[type="text"], input[type="date"], select, input[type="file"] { width: 100%; padding: 9px; border: 1px solid #cbd5e1; border-radius: 5px; box-sizing: border-box; }
+        .checkbox-group { display: flex; align-items: flex-start; gap: 8px; margin: 15px 0; background: #fffbeb; padding: 10px; border: 1px solid #fde68a; border-radius: 5px; font-size: 13px; }
+        button { background: #2563eb; color: white; border: none; padding: 10px 16px; border-radius: 5px; cursor: pointer; font-weight: 600; }
+        button:hover { background: #1d4ed8; }
+        button.btn-success { background: #16a34a; padding: 6px 12px; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+        th, td { border: 1px solid #e2e8f0; padding: 10px; text-align: left; }
+        th { background: #f8fafc; }
+        .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .badge-present { background: #dcfce7; color: #166534; }
+        .badge-pending { background: #fef9c3; color: #854d0e; }
+        .badge-error { background: #fee2e2; color: #991b1b; }
+        .stats-bar { display: flex; gap: 15px; margin-bottom: 15px; }
+        .stat-box { flex: 1; background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; text-align: center; }
+        .stat-box strong { display: block; font-size: 20px; color: #1e3a8a; }
+        #statusMsg { margin-top: 12px; font-weight: 600; font-size: 13px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>HỆ THỐNG ĐIỂM DANH SINH VIÊN BẰNG AMAZON REKOGNITION (AWS SERVERLESS)</h1>
+        <p>Đơn vị: Trường Đại học Công nghệ Kỹ thuật TP. Hồ Chí Minh (HCM-UTE) | GVHD: ThS. Huỳnh Xuân Phụng</p>
+        <p>Sinh viên thực hiện: Phạm Đăng Khoa (24110256) – Huỳnh Quảng Tín (24110353)</p>
+    </div>
+
+    <div class="privacy-banner">
+        <strong>Chính sách Quyền riêng tư & Giới hạn Lưu trữ (Privacy Guardrails):</strong>
+        Hệ thống chỉ xử lý hình ảnh của thành viên nhóm hoặc cá nhân đã đồng ý cung cấp. S3 Bucket bật <em>Block All Public Access</em> (tải ảnh qua Pre-signed URL tự hủy sau 300s). Giới hạn thử nghiệm: <strong>&le; 50 khuôn mặt</strong> (Giới hạn cứng toàn hệ thống: <strong>1.000 khuôn mặt</strong>).
+    </div>
+
+    <div class="card">
+        <label>Cấu hình API Gateway Invoke URL (Region us-east-1):</label>
+        <div style="display: flex; gap: 10px;">
+            <input type="text" id="apiUrl" placeholder="https://xxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/attendance">
+            <input type="date" id="classDate" style="width: 200px;">
+            <button onclick="loadDashboard()">Làm mới Dữ liệu</button>
+        </div>
+    </div>
+
+    <div class="grid">
+        <!-- Cột trái: Upload ảnh qua Pre-signed URL -->
+        <div class="card">
+            <h3>Tải ảnh lên S3 (Pre-signed URL)</h3>
+            <label>Loại tác vụ:</label>
+            <select id="uploadType">
+                <option value="class-photos">Điểm danh lớp học (/class-photos/)</option>
+                <option value="registered-faces">Đăng ký khuôn mặt mới (/registered-faces/)</option>
+            </select>
+
+            <label>Chọn tệp ảnh (.jpg):</label>
+            <input type="file" id="photoFile" accept=".jpg,.jpeg">
+
+            <div class="checkbox-group">
+                <input type="checkbox" id="privacyConsent" style="margin-top: 3px;">
+                <span>Tôi xác nhận người trong ảnh là thành viên nhóm hoặc đã đồng ý cho phép sử dụng hình ảnh phục vụ học tập (Tuân thủ giới hạn &le; 50 / 1.000 khuôn mặt).</span>
+            </div>
+
+            <button onclick="uploadImage()" style="width: 100%;">Lấy Pre-signed URL & Tải ảnh lên</button>
+            <div id="statusMsg"></div>
+        </div>
+
+        <!-- Cột phải: Bảng kết quả điểm danh & Fallback -->
+        <div>
+            <div class="card">
+                <h3>Thống kê & Danh sách Điểm danh Chính thức (Bảng AttendanceRecords)</h3>
+                <div class="stats-bar">
+                    <div class="stat-box"><span id="quotaFaces">2 / 50 (Max 1000)</span><small>Vector Khuôn mặt (Collection)</small></div>
+                    <div class="stat-box"><strong id="totalReg">0</strong><small>SV Đã đăng ký</small></div>
+                    <div class="stat-box"><strong id="presentCount">0</strong><small>Có mặt hôm nay</small></div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>MSSV</th>
+                            <th>Ngày học</th>
+                            <th>Trạng thái</th>
+                            <th>Độ tin cậy (%)</th>
+                            <th>Phương thức xác thực</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendanceTableBody">
+                        <tr><td colspan="5">Nhập API Gateway URL và bấm "Làm mới Dữ liệu"...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card">
+                <h3>Hàng đợi Dự phòng Cần Rà soát (Bảng AttendanceManualReview - Fallback 2 Tầng)</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Review ID</th>
+                            <th>Ảnh nguồn</th>
+                            <th>Trạng thái Fallback</th>
+                            <th>Lý do / Mã lỗi</th>
+                            <th>Thao tác Giảng viên</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fallbackTableBody">
+                        <tr><td colspan="5">Chưa có dữ liệu...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.getElementById('classDate').valueAsDate = new Date();
+
+    async function loadDashboard() {
+        const apiUrl = document.getElementById('apiUrl').value.trim();
+        const classDate = document.getElementById('classDate').value;
+        if (!apiUrl) { alert('Vui lòng dán API Gateway Invoke URL!'); return; }
+
+        try {
+            const res = await fetch(`${apiUrl}?action=GET_ATTENDANCE&class_date=${classDate}`);
+            const data = await res.json();
+
+            if (data.privacyCompliance) {
+                document.getElementById('quotaFaces').innerHTML = `<strong>${data.privacyCompliance.currentFaceCount} / ${data.privacyCompliance.testFaceLimit}</strong> (Max ${data.privacyCompliance.hardMaxFaceLimit})`;
+            }
+            document.getElementById('totalReg').innerText = data.totalRegisteredStudents || 0;
+            document.getElementById('presentCount').innerText = data.presentCount || 0;
+
+            // Render bảng điểm danh chính
+            const attBody = document.getElementById('attendanceTableBody');
+            attBody.innerHTML = '';
+            (data.attendanceList || []).forEach(item => {
+                attBody.innerHTML += `<tr>
+                    <td><strong>${item.StudentId}</strong></td>
+                    <td>${item.ClassDate}</td>
+                    <td><span class="badge badge-present">${item.Status}</span></td>
+                    <td>${item.Confidence}%</td>
+                    <td>${item.VerificationType}</td>
+                </tr>`;
+            });
+            if (!data.attendanceList || data.attendanceList.length === 0) {
+                attBody.innerHTML = '<tr><td colspan="5">Chưa có sinh viên nào được ghi nhận trong ngày này.</td></tr>';
+            }
+
+            // Render bảng Fallback
+            const fbBody = document.getElementById('fallbackTableBody');
+            fbBody.innerHTML = '';
+            (data.fallbackReviewList || []).forEach(item => {
+                const badgeClass = item.Status.includes('ERROR') ? 'badge-error' : 'badge-pending';
+                const reason = item.FallbackReason || item.ErrorCode || 'N/A';
+                const actionBtn = item.Status === 'PENDING_MANUAL_REVIEW'
+                    ? `<button class="btn-success" onclick="manualApprove('${item.ReviewId}')">Duyệt tay MSSV</button>`
+                    : `<span>Đã xử lý / Cách ly</span>`;
+                fbBody.innerHTML += `<tr>
+                    <td>${item.ReviewId.substring(0, 8)}...</td>
+                    <td>${item.SourceImage}</td>
+                    <td><span class="badge ${badgeClass}">${item.Status}</span></td>
+                    <td>${reason}</td>
+                    <td>${actionBtn}</td>
+                </tr>`;
+            });
+        } catch (err) {
+            alert('Lỗi kết nối API Gateway: ' + err.message);
+        }
+    }
+
+    async function uploadImage() {
+        const apiUrl = document.getElementById('apiUrl').value.trim();
+        const fileInput = document.getElementById('photoFile');
+        const uploadType = document.getElementById('uploadType').value;
+        const consent = document.getElementById('privacyConsent').checked;
+        const statusMsg = document.getElementById('statusMsg');
+
+        if (!apiUrl) { alert('Vui lòng nhập API Gateway URL!'); return; }
+        if (!fileInput.files.length) { alert('Vui lòng chọn 1 file ảnh!'); return; }
+
+        const file = fileInput.files[0];
+        statusMsg.style.color = '#1e3a8a';
+        statusMsg.innerText = '1. Đang kiểm tra quyền riêng tư & xin cấp S3 Pre-signed URL...';
+
+        try {
+            const res = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'GET_UPLOAD_URL',
+                    privacy_consent: consent,
+                    upload_type: uploadType,
+                    file_name: file.name
+                })
+            });
+            const data = await res.json();
+
+            if (!res.ok) {
+                statusMsg.style.color = '#dc2626';
+                statusMsg.innerText = 'Chặn bảo mật: ' + (data.message || data.error);
+                return;
+            }
+
+            statusMsg.innerText = '2. Đang tải ảnh trực tiếp lên S3 qua Pre-signed URL...';
+            const putRes = await fetch(data.uploadUrl, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'image/jpeg' },
+                body: file
+            });
+
+            if (putRes.ok) {
+                statusMsg.style.color = '#16a34a';
+                statusMsg.innerText = `Tải ảnh thành công (${data.objectKey})! Đợi 5 giây để Lambda xử lý rồi bấm Làm mới.`;
+                setTimeout(loadDashboard, 5000);
+            } else {
+                statusMsg.style.color = '#dc2626';
+                statusMsg.innerText = 'Lỗi khi PUT ảnh lên S3 (Kiểm tra cấu hình S3 CORS).';
+            }
+        } catch (err) {
+            statusMsg.style.color = '#dc2626';
+            statusMsg.innerText = 'Lỗi: ' + err.message;
+        }
+    }
+
+    async function manualApprove(reviewId) {
+        const apiUrl = document.getElementById('apiUrl').value.trim();
+        const classDate = document.getElementById('classDate').value;
+        const studentId = prompt('Nhập MSSV cần xác nhận có mặt thủ công (VD: 24110353):');
+        if (!studentId) return;
+
+        const res = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'MANUAL_APPROVE',
+                class_date: classDate,
+                review_id: reviewId,
+                student_id: studentId
+            })
+        });
+        const data = await res.json();
+        alert(data.message || 'Đã cập nhật!');
+        loadDashboard();
+    }
+</script>
+</body>
+</html>
